@@ -14,22 +14,15 @@ Copyright 2021 Teodor Spæren
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
-	"os/signal"
 	"time"
 
 	"cloud.google.com/go/pubsub"
-	"github.com/google/uuid"
 	"github.com/urfave/cli/v2"
 	"google.golang.org/api/iterator"
 )
-
-// func RootCmd(c *cli.Context) error {
-// 	return nil
-// }
 
 func ListTopicsCmd(c *cli.Context) error {
 	client := getPubsubClient(c.Context)
@@ -49,54 +42,10 @@ func ListTopicsCmd(c *cli.Context) error {
 	return nil
 }
 
-func MonitorTopicCmd(c *cli.Context) error {
-	client := getPubsubClient(c.Context)
-	topicName := c.String("topic")
-
-	top := client.Topic(topicName)
-
-	ui := uuid.New()
-	id := fmt.Sprintf("pubsub-gumshoe-%s", ui.String())
-
-	cc, cancel := signal.NotifyContext(c.Context, os.Interrupt)
-	defer cancel()
-
-	sub, err := client.CreateSubscription(cc, id, pubsub.SubscriptionConfig{
-		ExpirationPolicy: time.Hour * 24,
-		Topic:            top,
-		Labels: map[string]string{
-			"created_by": "pubsub-gumshoe",
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("creating subscription: %v", err)
-	}
-	defer func() {
-		if err := sub.Delete(c.Context); err != nil {
-			log.Printf("deleting temp topic: %v", err)
-		} else {
-			log.Printf("deleted temp topic")
-		}
-	}()
-
-	log.Printf("Listening!")
-	err = sub.Receive(cc, func(ctx context.Context, msg *pubsub.Message) {
-		defer msg.Nack()
-		fmt.Println(string(msg.Data))
-		msg.Ack()
-	})
-	if err != nil {
-		log.Printf("receiving from sub: %v", err)
-	}
-
-	return nil
-}
-
 func main() {
 	app := &cli.App{
 		Name:  "pubsub-gumshoe",
 		Usage: "Investigate pubsubbery",
-		// Action: RootCmd,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:     "project",
@@ -137,6 +86,34 @@ func main() {
 								Name:     "topic",
 								Usage:    "The topic id to monitor",
 								Required: true,
+							},
+						},
+					},
+					{
+						Name:   "dump",
+						Usage:  "dump messages from a topic into a file.",
+						Action: DumpTopicCmd,
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "topic",
+								Usage:    "The topic id to monitor",
+								Required: true,
+							},
+							&cli.PathFlag{
+								Name:      "out",
+								Usage:     "The file to use as output",
+								TakesFile: true,
+								Required:  true,
+							},
+							&cli.DurationFlag{
+								Name:     "rewind",
+								Usage:    "How long to rewind the subscription",
+								Required: true,
+							},
+							&cli.DurationFlag{
+								Name:  "wait",
+								Usage: "How long to wait for new messages, before exiting",
+								Value: 10 * time.Second,
 							},
 						},
 					},
