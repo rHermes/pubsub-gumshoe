@@ -115,6 +115,11 @@ func main() {
 								Usage: "How long to wait for new messages, before exiting",
 								Value: 10 * time.Second,
 							},
+							&cli.BoolFlag{
+								Name:  "raw",
+								Usage: "dump the base64 encoded data, instead of json",
+								Value: false,
+							},
 						},
 					},
 				},

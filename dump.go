@@ -15,6 +15,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -26,6 +27,39 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+type MessageJson struct {
+	// ID identifies this message. This ID is assigned by the server and is
+	// populated for Messages obtained from a subscription.
+	//
+	// This field is read-only.
+	ID string
+
+	// Data is the actual data in the message.
+	Data json.RawMessage
+
+	// Attributes represents the key-value pairs the current message is
+	// labelled with.
+	Attributes map[string]string
+
+	// PublishTime is the time at which the message was published. This is
+	// populated by the server for Messages obtained from a subscription.
+	//
+	// This field is read-only.
+	PublishTime time.Time
+
+	// DeliveryAttempt is the number of times a message has been delivered.
+	// This is part of the dead lettering feature that forwards messages that
+	// fail to be processed (from nack/ack deadline timeout) to a dead letter topic.
+	// If dead lettering is enabled, this will be set on all attempts, starting
+	// with value 1. Otherwise, the value will be nil.
+	// This field is read-only.
+	DeliveryAttempt *int
+
+	// OrderingKey identifies related messages for which publish order should
+	// be respected. If empty string is used, message will be sent unordered.
+	OrderingKey string
+}
+
 func DumpTopicCmd(c *cli.Context) error {
 	client := getPubsubClient(c.Context)
 
@@ -34,6 +68,8 @@ func DumpTopicCmd(c *cli.Context) error {
 	rewindDur := c.Duration("rewind")
 	// We have a deadline here, to estimate buffer output complition
 	waitDeadline := c.Duration("wait")
+
+	rawOputput := c.Bool("raw")
 
 	// Attempt to open the file for writing
 	outFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
@@ -94,6 +130,8 @@ func DumpTopicCmd(c *cli.Context) error {
 	tic := time.NewTimer(waitDeadline)
 	defer tic.Stop()
 
+	jWriter := json.NewEncoder(outFile)
+
 outer:
 	for {
 		select {
@@ -104,11 +142,22 @@ outer:
 		case msg := <-outChan:
 			log.Printf("We got a message with id: %s", msg.ID)
 
-			if _, err := outFile.Write(msg.Data); err != nil {
-				return fmt.Errorf("writing to outputfile: %v", err)
-			}
-			if _, err := fmt.Fprintln(outFile, ""); err != nil {
-				return fmt.Errorf("writing to outputfile: %v", err)
+			if rawOputput {
+				if err := jWriter.Encode(&msg); err != nil {
+					return fmt.Errorf("writing to outputfile: %v", err)
+				}
+			} else {
+				jmsg := MessageJson{
+					ID:              msg.ID,
+					Data:            msg.Data,
+					Attributes:      msg.Attributes,
+					PublishTime:     msg.PublishTime,
+					DeliveryAttempt: msg.DeliveryAttempt,
+					OrderingKey:     msg.OrderingKey,
+				}
+				if err := jWriter.Encode(&jmsg); err != nil {
+					return fmt.Errorf("writing to outputfile: %v", err)
+				}
 			}
 
 			msg.Ack()
