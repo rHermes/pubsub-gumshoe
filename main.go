@@ -16,12 +16,15 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
 	"cloud.google.com/go/pubsub"
 	"github.com/urfave/cli/v2"
 	"google.golang.org/api/iterator"
+
+	_ "net/http/pprof"
 )
 
 func ListTopicsCmd(c *cli.Context) error {
@@ -52,11 +55,22 @@ func main() {
 				Usage:    "The gcp project id",
 				Required: true,
 			},
+			&cli.BoolFlag{
+				Name:  "pprof",
+				Usage: "Enable pprof http interface",
+				Value: false,
+			},
 		},
 		Before: func(c *cli.Context) error {
 			client, err := pubsub.NewClient(c.Context, c.String("project"))
 			if err != nil {
 				return fmt.Errorf("creating pubsub client: %v", err)
+			}
+
+			if c.Bool("pprof") {
+				go func() {
+					log.Println(http.ListenAndServe("localhost:6060", nil))
+				}()
 			}
 
 			c.Context = setPubsubClient(c.Context, client)
@@ -68,6 +82,28 @@ func main() {
 			return nil
 		},
 		Commands: []*cli.Command{
+			{
+				Name:   "rewind-test",
+				Usage:  "Test how long a rewind takes",
+				Action: RewindTestCmd,
+				Flags: []cli.Flag{
+					&cli.DurationFlag{
+						Name:     "rewind",
+						Usage:    "How long to rewind the subscription",
+						Required: true,
+					},
+					&cli.DurationFlag{
+						Name:  "wait",
+						Usage: "How long to wait for new messages, before exiting",
+						Value: 10 * time.Second,
+					},
+					&cli.StringSliceFlag{
+						Name:     "topics",
+						Usage:    "Which topics to test rewind on",
+						Required: true,
+					},
+				},
+			},
 			{
 				Name:  "topics",
 				Usage: "operations on topics",

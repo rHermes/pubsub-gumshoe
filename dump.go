@@ -116,6 +116,8 @@ func DumpTopicCmd(c *cli.Context) error {
 	cw, fcancel := context.WithCancel(cc)
 	defer fcancel()
 
+	tk := time.Now()
+
 	go func(ctx context.Context) {
 		log.Printf("Starting dump")
 		err = sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
@@ -132,6 +134,8 @@ func DumpTopicCmd(c *cli.Context) error {
 
 	jWriter := json.NewEncoder(outFile)
 
+	var messages uint64
+	lastMessageSeen := time.Now()
 outer:
 	for {
 		select {
@@ -140,7 +144,12 @@ outer:
 			break outer
 
 		case msg := <-outChan:
-			log.Printf("We got a message with id: %s", msg.ID)
+			messages += 1
+			if messages%100 == 0 {
+				log.Printf("We have %d messages, last id is: %s", messages, msg.ID)
+			}
+
+			lastMessageSeen = time.Now()
 
 			if rawOputput {
 				if err := jWriter.Encode(&msg); err != nil {
@@ -171,6 +180,11 @@ outer:
 			break outer
 		}
 	}
+
+	// dur := time.Since(tk)
+	dur := lastMessageSeen.Sub(tk)
+	secs := dur.Seconds()
+	log.Printf("Rewind took %s and we saw %d messages, making up a rate of %.2f messages per second", dur.String(), messages, float64(messages)/secs)
 
 	return nil
 }
